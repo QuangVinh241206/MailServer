@@ -165,18 +165,37 @@ public class ServerUI extends Application {
 
     public static String getLocalLanIp() {
         try {
+            // Ưu tiên dùng socket UDP để tìm IP mà OS chọn ra ngoài mạng
+            try (java.net.DatagramSocket socket = new java.net.DatagramSocket()) {
+                socket.connect(java.net.InetAddress.getByName("8.8.8.8"), 80);
+                String ip = socket.getLocalAddress().getHostAddress();
+                if (ip != null && !ip.equals("0.0.0.0") && !ip.equals("127.0.0.1")) {
+                    return ip;
+                }
+            } catch (Exception ignored) {}
+
+            // Fallback: duyệt interface, bỏ qua VMware/virtual adapter
+            String fallback = null;
             Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
             while (interfaces.hasMoreElements()) {
                 NetworkInterface iface = interfaces.nextElement();
-                if (iface.isLoopback() || !iface.isUp() || iface.isVirtual()) continue;
+                if (iface.isLoopback() || !iface.isUp()) continue;
+                String name = iface.getName().toLowerCase();
+                String displayName = iface.getDisplayName().toLowerCase();
+                // Bỏ qua VMware, Hyper-V, VirtualBox adapter
+                if (name.contains("vmnet") || displayName.contains("vmware")
+                        || displayName.contains("virtual") || displayName.contains("hyper-v")
+                        || displayName.contains("vethernet") || displayName.contains("bluetooth")) continue;
                 Enumeration<InetAddress> addresses = iface.getInetAddresses();
                 while (addresses.hasMoreElements()) {
                     InetAddress addr = addresses.nextElement();
-                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress() && !addr.getHostAddress().startsWith("169.254")) {
-                        return addr.getHostAddress();
+                    if (addr instanceof Inet4Address && !addr.isLoopbackAddress()
+                            && !addr.getHostAddress().startsWith("169.254")) {
+                        if (fallback == null) fallback = addr.getHostAddress();
                     }
                 }
             }
+            if (fallback != null) return fallback;
             return InetAddress.getLocalHost().getHostAddress();
         } catch (Exception e) {
             return "127.0.0.1";
